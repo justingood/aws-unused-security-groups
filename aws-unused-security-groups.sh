@@ -12,7 +12,10 @@ true> sg-used-eni.txt
 true> sg-used-elb.txt
 true> sg-used-rds.txt
 true> sg-used-lambda.txt
+true> sg-used-elasticache.txt
+true> sg-used-elasticsearch.txt
 true> sg-unused-final.txt
+true> sg-used-final.txt
 
 printf "\nlist unused security groups in all regions of an AWS account\n"
 
@@ -80,6 +83,20 @@ for region in $(aws ec2 describe-regions | jq --raw-output '.Regions[].RegionNam
 done
 wc -l sg-used-lambda.txt
 
+printf "\nstep 8: list security groups associated with Elasticache "
+for sg in $(aws elasticache describe-cache-clusters --region us-east-1 --output json|jq --raw-output '.CacheClusters[].SecurityGroups[].SecurityGroupId'); do
+  printf "%s\t%s\n" "us-east-1" "$sg">>sg-used-elasticache.txt; printf "-";
+done;
+wc -l sg-used-elasticache.txt
+
+printf "\nstep 8: list security groups associated with Elasticsearch "
+for domain in $(aws es list-domain-names --region us-east-1| jq --raw-output '.DomainNames[].DomainName'); do
+  printf "=";	
+  for sg in $(aws es describe-elasticsearch-domain --domain-name $domain --region us-east-1 | jq --raw-output '.DomainStatus.VPCOptions.SecurityGroupIds[]?'); do
+    printf "%s\t%s\n" "$region" "$sg">>sg-used-elasticsearch.txt; printf "-";
+  done;
+done
+
 printf "\nstep 8: generate a single list of unique used security groups "
 sort sg-used-* | uniq >sg-used-sorted.txt
 sort sg-all.txt | uniq >sg-all-sorted.txt
@@ -96,5 +113,11 @@ do
   printf "%s\t%s\t%s\n" "$region" "$sg" "$description">>sg-unused-final.txt; printf "-";
 done <sg-unused.txt
 
+printf "\nstep 10. get the descriptions of the unused security groups "
+while IFS=$'\t' read -r region sg
+do
+  description=$(aws ec2 describe-security-groups --region $region --group-ids $sg | jq --raw-output '.SecurityGroups[].Description'); 
+  printf "%s\t%s\t%s\n" "$region" "$sg" "$description">>sg-used-final.txt; printf "-";
+done <sg-used-sorted.txt
+
 printf "\n";
-more sg-unused-final.txt
